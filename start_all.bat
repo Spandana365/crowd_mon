@@ -10,12 +10,8 @@ start "Organizer Frontend" cmd /k "cd /d %~dp0frontend_organizer && python app.p
 echo Starting Public Frontend Flask (port 5002)...
 start "Public Frontend Flask" cmd /k "cd /d %~dp0frontend_public && python app.py"
 
-echo Starting Public React App (port 5174)...
-start "Public React" cmd /k "cd /d %~dp0frontend-public && npm run dev"
-
 echo.
 echo All servers started:
 echo   Backend:                  http://localhost:5000
 echo   Organizer Frontend:       http://localhost:5001
 echo   Public Frontend (Flask):  http://localhost:5002
-echo   Public React App:         http://localhost:5174
