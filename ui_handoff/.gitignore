@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Local secrets
+.env
+
+# Local runtime data
+data.db
+sentiment_results.json
+insta_facebook_reddit_easyocr_sentiment.json
+

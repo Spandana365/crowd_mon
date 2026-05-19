@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoring Dashboard (Public)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f8fafc; color: #0f172a; }
+        #container { display: flex; height: 100vh; }
+        #map { flex: 7; position: relative; }
+        #sidebar { flex: 3; min-width: 320px; max-width: 460px; padding: 16px; border-left: 1px solid #e2e8f0; overflow-y: auto; background: #ffffff; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .card { margin-top: 12px; padding: 14px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .muted { color: #475569; }
+        .empty { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f1f5f9; color:#475569; }
+        .zone-row { display:flex; justify-content:space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0; background:#fff; margin-top: 10px; align-items: center; }
+        .tabs { display: flex; gap: 8px; margin-top: 10px; border-bottom: 1px solid #e2e8f0; }
+        .tab-btn { padding: 8px 12px; background: transparent; border: none; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+        .tab-content { display: none; margin-top: 10px; }
+        .tab-content.active { display: block; }
+        .heatmap-legend { margin-top: 10px; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; }
+        .auto-refresh-indicator { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: #ecf0f1; border-radius: 8px; }
+        .pulse { display: inline-block; width: 12px; height: 12px; background: #2ecc71; border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="map"></div>
+    <div id="sidebar">
+        <a href="/public">← Change Event</a>
+        <h2 style="margin: 10px 0 0 0;">Monitoring Dashboard (Public)</h2>
+        <div class="muted">{{ event.event_name }} ({{ event.start_date }} → {{ event.end_date }})</div>
+
+        <!-- Predicted Crowd Summary Card -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; gap: 8px; align-items:center;">
+                <div><strong>Predicted crowd</strong></div>
+                <div class="pill">{{ event.risk_level or "Unknown" }}</div>
+            </div>
+            <div style="margin-top:10px; font-size: 26px; font-weight: 900; color:#1d4ed8;">
+                {{ event.final_crowd or "—" }}
+            </div>
+            <div class="muted" style="margin-top:6px;">
+                Capacity: {{ event.venue_capacity or "—" }} | Ratio: {{ event.congestion_ratio or "—" }}
+            </div>
+        </div>
+
+        <!-- Zones & Heatmap Card -->
+        <div class="card">
+            <strong>Zones & Heatmap</strong>
+            <div class="muted" style="margin-top:8px;">Live zone data and heatmap visualization.</div>
+
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="zones-tab">Zones</button>
+                <button class="tab-btn" data-tab="heatmap-tab">Heatmap</button>
+            </div>
+
+            <!-- Zones Tab -->
+            <div id="zones-tab" class="tab-content active">
+                <div id="zoneList" style="margin-top:10px;"></div>
+                <div class="auto-refresh-indicator">
+                    <span class="pulse"></span>
+                    <span>Live updates every 30 seconds</span>
+                </div>
+            </div>
+
+            <!-- Heatmap Tab -->
+            <div id="heatmap-tab" class="tab-content">
+                <div class="muted" style="margin-top:8px;">Heatmap shows crowd density distribution.</div>
+                <div class="heatmap-legend">
+                    <strong>Intensity Scale:</strong>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: rgba(0,0,255,0.5);"></div>
+                        <span>Low density</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: rgba(0,255,0,0.7);"></div>
+                        <span>Medium density</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: rgba(255,0,0,0.9);"></div>
+                        <span>High density</span>
+                    </div>
+                </div>
+                <div id="heatmapStats" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+        </div>
+
+        <div id="layoutEmpty" class="empty" style="display:none;">
+            No layout saved for this event yet. Ask an organizer to create one in Layout Design.
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+const boundary = {{ boundary|tojson }};
+const zones = {{ zones|tojson }};
+
+// Initialize map
+var map = L.map('map').setView([12.9716, 77.5946], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+    attribution: '© OpenStreetMap contributors', 
+    maxZoom: 20 
+}).addTo(map);
+
+// UI elements
+const zoneList = document.getElementById('zoneList');
+const layoutEmpty = document.getElementById('layoutEmpty');
+const heatmapStats = document.getElementById('heatmapStats');
+
+// Map layers
+let zoneRows = [];
+let heatLayer = L.layerGroup().addTo(map);
+let heatmapLayer = null;
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const tabName = this.dataset.tab;
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(tabName).classList.add('active');
+        this.classList.add('active');
+        map.invalidateSize();
+    });
+});
+
+// Render boundary
+if (!boundary && !zones) {
+    layoutEmpty.style.display = 'block';
+}
+
+if (boundary) {
+    const b = L.geoJSON(boundary, { 
+        style: { color: '#d9534f', fillOpacity: 0.10, weight: 2 } 
+    }).addTo(map);
+    try { 
+        map.fitBounds(b.getBounds(), { padding: [20, 20] }); 
+    } catch (e) {}
+}
+
+// Render zones
+if (zones && zones.features && zones.features.length > 0) {
+    const z = L.geoJSON(zones, {
+        style: () => ({ color: '#2563eb', fillOpacity: 0.18, weight: 2, fillColor: '#3b82f6' }),
+        onEachFeature: function(feature, layer) {
+            const name = feature.properties && feature.properties.name ? feature.properties.name : 'Zone';
+            layer.bindPopup(name);
+
+            const row = document.createElement('div');
+            row.className = 'zone-row';
+            row.innerHTML = `<div><strong>${name}</strong><div class="muted">Current people count</div></div>` +
+                            `<div style="font-size:20px; font-weight:900; color:#1d4ed8;" data-zone-count>0</div>`;
+            zoneList.appendChild(row);
+            zoneRows.push({ name, el: row.querySelector('[data-zone-count]') });
+        }
+    }).addTo(map);
+    try { 
+        map.fitBounds(z.getBounds(), { padding: [20, 20] }); 
+    } catch (e) {}
+} else if (zones && (!zones.features || zones.features.length === 0)) {
+    const p = document.createElement('div');
+    p.className = 'muted';
+    p.textContent = 'No zones saved.';
+    zoneList.appendChild(p);
+}
+
+// Heatmap functions
+function drawHeatmap(points) {
+    heatLayer.clearLayers();
+    if (!points || points.length === 0) return;
+    for (const p of points) {
+        if (typeof p.x !== 'number' || typeof p.y !== 'number') continue;
+        L.circleMarker([p.y, p.x], {
+            radius: 5,
+            color: '#ef4444',
+            fillColor: '#f97316',
+            fillOpacity: 0.4,
+            weight: 1
+        }).addTo(heatLayer);
+    }
+}
+
+function drawLeafletHeatmap(points) {
+    if (heatmapLayer) {
+        map.removeLayer(heatmapLayer);
+    }
+    if (!points || points.length === 0) {
+        heatmapStats.innerHTML = '<div class="muted">No heatmap data available</div>';
+        return;
+    }
+
+    // Convert to Leaflet.heat format: [[lat, lng, intensity], ...]
+    const heatPoints = points.map(p => [
+        p.lat !== undefined ? p.lat : p.y,
+        p.lng !== undefined ? p.lng : p.x,
+        p.intensity || p.w || 0.5
+    ]);
+
+    heatmapLayer = L.heatLayer(heatPoints, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 17,
+        minOpacity: 0.2,
+        gradient: {
+            0.0: '#0000ff',
+            0.25: '#00ff00',
+            0.5: '#ffff00',
+            0.75: '#ff7f00',
+            1.0: '#ff0000'
+        }
+    }).addTo(map);
+
+    heatmapStats.innerHTML = `<strong>Heatmap Stats:</strong><br>Points: ${points.length}<br>Last updated: ${new Date().toLocaleTimeString()}`;
+}
+
+function updateZoneCounts(zoneCounts) {
+    if (!zoneCounts || zoneCounts.length === 0) return;
+    const byName = new Map(zoneCounts.map(z => [z.zone_name, z.people_count]));
+    zoneRows.forEach(z => {
+        if (byName.has(z.name)) z.el.textContent = byName.get(z.name);
+    });
+}
+
+// Fetch and update heatmap data periodically
+async function updateHeatmapData() {
+    try {
+        // Fetch from the heatmap update API
+        const response = await fetch('/api/v1/update-heatmap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ counts: {} })
+        });
+        
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        // Convert API response to heatmap format
+        if (data.zones && data.zones.length > 0) {
+            const heatmapPoints = data.zones.map(zone => ({
+                lat: zone.centroid[0],
+                lng: zone.centroid[1],
+                x: zone.centroid[1],
+                y: zone.centroid[0],
+                intensity: zone.weight,
+                w: zone.weight
+            }));
+            
+            // Update zone counts
+            const zoneCounts = data.zones.map(zone => ({
+                zone_name: zone.display_name,
+                people_count: zone.count
+            }));
+            
+            updateZoneCounts(zoneCounts);
+            drawHeatmap(heatmapPoints);
+            drawLeafletHeatmap(heatmapPoints);
+        }
+    } catch (error) {
+        console.error('Error updating heatmap:', error);
+    }
+}
+
+// Update heatmap on page load
+updateHeatmapData();
+
+// Update heatmap every 30 seconds
+setInterval(updateHeatmapData, 30000);
+</script>
+</body>
+</html>

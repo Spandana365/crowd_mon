@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoring Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f8fafc; color: #0f172a; }
+        #container { display: flex; height: 100vh; }
+        #map { flex: 7; }
+        #sidebar { flex: 3; min-width: 320px; max-width: 460px; padding: 16px; border-left: 1px solid #e2e8f0; overflow-y: auto; background: #ffffff; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .card { margin-top: 12px; padding: 14px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .muted { color: #475569; }
+        .empty { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f1f5f9; color:#475569; }
+        .zone-row { display:flex; justify-content:space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0; background:#fff; margin-top: 10px; align-items: center; }
+        .btn { border:none; background:#2563eb; color:#fff; border-radius: 10px; padding: 10px 12px; font-weight:700; cursor:pointer; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .field { margin-top: 10px; }
+        .field label { display:block; font-weight:700; margin-bottom: 6px; font-size: 13px; }
+        .field input, .field select { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #cbd5e1; border-radius:10px; }
+        .metric-grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+        .metric { border:1px solid #dbeafe; border-radius: 10px; padding: 10px; background:#eff6ff; }
+        .metric .k { font-size: 12px; color:#334155; }
+        .metric .v { font-size: 20px; font-weight: 900; color:#1d4ed8; }
+        .zone-source-card { margin-top: 10px; border: 1px solid #dbeafe; border-radius: 12px; padding: 10px; background: #fff; }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="map"></div>
+    <div id="sidebar">
+        <a href="/public">← Change Event</a>
+        <h2 style="margin: 10px 0 0 0;">Monitoring Dashboard</h2>
+        <div class="muted">{{ event.event_name }} ({{ event.start_date }} → {{ event.end_date }})</div>
+
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; gap: 8px; align-items:center;">
+                <div><strong>Predicted crowd</strong></div>
+                <div class="pill">{{ event.risk_level or "Unknown" }}</div>
+            </div>
+            <div style="margin-top:10px; font-size: 26px; font-weight: 900; color:#1d4ed8;">
+                {{ event.final_crowd or "—" }}
+            </div>
+            <div class="muted" style="margin-top:6px;">
+                Capacity: {{ event.venue_capacity or "—" }} | Ratio: {{ event.congestion_ratio or "—" }}
+            </div>
+        </div>
+
+        <div class="card">
+            <strong>Zones</strong>
+            <div class="muted" style="margin-top:8px;">Run inference to update zone-wise people count and heatmap.</div>
+            <div id="zoneList" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="card">
+            <strong>Video Inference (OMAN + Students)</strong>
+            <div class="field">
+                <label for="modelType">Model</label>
+                <select id="modelType">
+                    <option>OMAN (SENSE teacher)</option>
+                    <option>MobileNet Student (legacy)</option>
+                    <option>MobileNet KD Stable (epoch 10)</option>
+                </select>
+            </div>
+            <div id="zoneVideoInputs" class="field"></div>
+            <div id="globalFallbackInputs" class="field" style="display:none;">
+                <label for="videoFile">Fallback: Upload single video (applies to all zones)</label>
+                <input id="videoFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm" />
+                <label for="videoUrl" style="margin-top:8px;">Or fallback video URL</label>
+                <input id="videoUrl" type="text" placeholder="https://.../video.mp4" />
+            </div>
+            <div class="field"><label for="sampleInterval">Sample interval (frames)</label><input id="sampleInterval" type="number" value="45" min="1" /></div>
+            <div class="field"><label for="resizeWidth">Resize width (px)</label><input id="resizeWidth" type="number" value="512" min="256" /></div>
+            <div class="field"><label for="maxSampledFrames">Max sampled frames</label><input id="maxSampledFrames" type="number" value="40" min="8" /></div>
+            <button id="runBtn" class="btn" style="margin-top:10px; width:100%;">Run Inference</button>
+            <div id="inferStatus" class="muted" style="margin-top:8px;"></div>
+            <div class="metric-grid" id="inferMetrics" style="display:none;">
+                <div class="metric"><div class="k">Final / Estimated Count</div><div class="v" id="mFinal">—</div></div>
+                <div class="metric"><div class="k">First Frame Count</div><div class="v" id="mFirst">—</div></div>
+                <div class="metric"><div class="k">Flow (persons/min)</div><div class="v" id="mFlow">—</div></div>
+            </div>
+        </div>
+
+        <div id="layoutEmpty" class="empty" style="display:none;">
+            No layout saved for this event yet. Ask an organizer to create one in Layout Design.
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const boundary = {{ boundary|tojson }};
+const zones = {{ zones|tojson }};
+
+var map = L.map('map').setView([12.9716, 77.5946], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 20 }).addTo(map);
+
+const zoneList = document.getElementById('zoneList');
+const layoutEmpty = document.getElementById('layoutEmpty');
+const inferStatus = document.getElementById('inferStatus');
+const inferMetrics = document.getElementById('inferMetrics');
+const runBtn = document.getElementById('runBtn');
+const zoneVideoInputs = document.getElementById('zoneVideoInputs');
+const globalFallbackInputs = document.getElementById('globalFallbackInputs');
+let zoneRows = [];
+let heatLayer = L.layerGroup().addTo(map);
+
+if (!boundary && !zones) {
+    layoutEmpty.style.display = 'block';
+}
+
+if (boundary) {
+    const b = L.geoJSON(boundary, { style: { color: '#d9534f', fillOpacity: 0.10, weight: 2 } }).addTo(map);
+    try { map.fitBounds(b.getBounds(), { padding: [20, 20] }); } catch (e) {}
+}
+
+if (zones && zones.features && zones.features.length > 0) {
+    const z = L.geoJSON(zones, {
+        style: () => ({ color: '#2563eb', fillOpacity: 0.18, weight: 2, fillColor: '#3b82f6' }),
+        onEachFeature: function(feature, layer) {
+            const name = feature.properties && feature.properties.name ? feature.properties.name : 'Zone';
+            layer.bindPopup(name);
+
+            const row = document.createElement('div');
+            row.className = 'zone-row';
+            row.innerHTML = `<div><strong>${name}</strong><div class="muted">Current people count</div></div>` +
+                            `<div style="font-size:20px; font-weight:900; color:#1d4ed8;" data-zone-count>0</div>`;
+            zoneList.appendChild(row);
+            zoneRows.push({ name, el: row.querySelector('[data-zone-count]') });
+        }
+    }).addTo(map);
+    try { map.fitBounds(z.getBounds(), { padding: [20, 20] }); } catch (e) {}
+} else if (zones && (!zones.features || zones.features.length === 0)) {
+    const p = document.createElement('div');
+    p.className = 'muted';
+    p.textContent = 'No zones saved.';
+    zoneList.appendChild(p);
+}
+
+function drawHeatmap(points) {
+    heatLayer.clearLayers();
+    if (!points || points.length === 0) return;
+    for (const p of points) {
+        if (typeof p.x !== 'number' || typeof p.y !== 'number') continue;
+        L.circleMarker([p.y, p.x], {
+            radius: 7,
+            color: '#ef4444',
+            fillColor: '#f97316',
+            fillOpacity: 0.28,
+            weight: 0
+        }).addTo(heatLayer);
+    }
+}
+
+function updateZoneCounts(zoneCounts) {
+    if (!zoneCounts || zoneCounts.length === 0) return;
+    const byName = new Map(zoneCounts.map(z => [z.zone_name, z.people_count]));
+    zoneRows.forEach(z => {
+        if (byName.has(z.name)) z.el.textContent = byName.get(z.name);
+    });
+}
+
+function renderZoneSourceInputs() {
+    zoneVideoInputs.innerHTML = '';
+    if (!zoneRows.length) {
+        globalFallbackInputs.style.display = 'block';
+        return;
+    }
+    globalFallbackInputs.style.display = 'none';
+    zoneRows.forEach((z, idx) => {
+        const card = document.createElement('div');
+        card.className = 'zone-source-card';
+        card.innerHTML = `
+            <div style="font-weight:700;">${z.name}</div>
+            <label style="display:block; margin-top:8px; font-size:13px;">Upload video</label>
+            <input type="file" data-zone-file="${idx}" accept=".mp4,.avi,.mov,.mkv,.webm" />
+            <label style="display:block; margin-top:8px; font-size:13px;">Or video URL</label>
+            <input type="text" data-zone-url="${idx}" placeholder="https://.../zone-video.mp4" />
+        `;
+        zoneVideoInputs.appendChild(card);
+    });
+}
+
+async function runInference() {
+    const file = document.getElementById('videoFile') ? document.getElementById('videoFile').files[0] : null;
+    const videoUrl = document.getElementById('videoUrl') ? document.getElementById('videoUrl').value.trim() : '';
+    runBtn.disabled = true;
+    inferStatus.textContent = 'Running inference... this can take time.';
+    try {
+        const fd = new FormData();
+        let zoneSourceCount = 0;
+        if (zoneRows.length) {
+            zoneRows.forEach((z, idx) => {
+                const f = document.querySelector(`[data-zone-file="${idx}"]`);
+                const u = document.querySelector(`[data-zone-url="${idx}"]`);
+                const zoneFile = f && f.files && f.files[0] ? f.files[0] : null;
+                const zoneUrl = u ? u.value.trim() : '';
+                if (zoneFile) {
+                    fd.append(`zone_video_${idx}`, zoneFile);
+                    zoneSourceCount += 1;
+                }
+                if (zoneUrl) {
+                    fd.append(`zone_url_${idx}`, zoneUrl);
+                    zoneSourceCount += 1;
+                }
+            });
+        }
+        if (zoneSourceCount === 0) {
+            if (file) fd.append('video_file', file);
+            if (videoUrl) fd.append('video_url', videoUrl);
+        }
+        if (zoneSourceCount === 0 && !file && !videoUrl) {
+            throw new Error('Please upload a video/URL for at least one zone.');
+        }
+        fd.append('model_type', document.getElementById('modelType').value);
+        fd.append('sample_interval', document.getElementById('sampleInterval').value);
+        fd.append('resize_width', document.getElementById('resizeWidth').value);
+        fd.append('max_sampled_frames', document.getElementById('maxSampledFrames').value);
+
+        const res = await fetch(`/api/monitoring/{{ event.id }}/analyze`, { method: 'POST', body: fd });
+        const payload = await res.json();
+        if (!res.ok || payload.error) throw new Error(payload.error || 'Inference failed');
+
+        const result = payload.result || {};
+        document.getElementById('mFinal').textContent = result.video_num ?? '—';
+        document.getElementById('mFirst').textContent = result.first_frame_num ?? '—';
+        document.getElementById('mFlow').textContent = (result.overall_flow_per_min || 0).toFixed(2);
+        inferMetrics.style.display = 'grid';
+        updateZoneCounts(payload.zone_counts || []);
+        drawHeatmap(payload.heatmap_points || []);
+        inferStatus.textContent = `Done with ${payload.model_type}.`;
+    } catch (err) {
+        inferStatus.textContent = `Inference failed: ${err.message}`;
+    } finally {
+        runBtn.disabled = false;
+    }
+}
+
+renderZoneSourceInputs();
+runBtn.addEventListener('click', runInference);
+</script>
+</body>
+</html>
+

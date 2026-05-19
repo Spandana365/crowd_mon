@@ -1,0 +1,88 @@
+{
+  "homography_zones": {
+    "zone_1": {
+      "name": "North Gate Area",
+      "video_anchor_points": [
+        [0, 0],
+        [1920, 0],
+        [1920, 1080],
+        [0, 1080]
+      ],
+      "map_anchor_points": [
+        ["LAT_1", "LNG_1"],
+        ["LAT_2", "LNG_2"],
+        ["LAT_3", "LNG_3"],
+        ["LAT_4", "LNG_4"]
+      ],
+      "border_points": [
+        ["LAT_1", "LNG_1"],
+        ["LAT_2", "LNG_2"],
+        ["LAT_3", "LNG_3"],
+        ["LAT_4", "LNG_4"],
+        ["LAT_5", "LNG_5"],
+        ["LAT_6", "LNG_6"]
+      ],
+      "max_capacity": 120,
+      "enabled": true
+    },
+    "zone_2": {
+      "name": "Main Stage",
+      "video_anchor_points": [
+        [0, 0],
+        [1920, 0],
+        [1920, 1080],
+        [0, 1080]
+      ],
+      "map_anchor_points": [
+        ["LAT_7", "LNG_7"],
+        ["LAT_8", "LNG_8"],
+        ["LAT_9", "LNG_9"],
+        ["LAT_10", "LNG_10"]
+      ],
+      "border_points": [
+        ["LAT_7", "LNG_7"],
+        ["LAT_8", "LNG_8"],
+        ["LAT_9", "LNG_9"],
+        ["LAT_10", "LNG_10"],
+        ["LAT_11", "LNG_11"],
+        ["LAT_12", "LNG_12"],
+        ["LAT_13", "LNG_13"]
+      ],
+      "max_capacity": 250,
+      "enabled": true
+    },
+    "zone_3": {
+      "name": "Food Court",
+      "video_anchor_points": [
+        [0, 0],
+        [1920, 0],
+        [1920, 1080],
+        [0, 1080]
+      ],
+      "map_anchor_points": [
+        ["LAT_14", "LNG_14"],
+        ["LAT_15", "LNG_15"],
+        ["LAT_16", "LNG_16"],
+        ["LAT_17", "LNG_17"]
+      ],
+      "border_points": [
+        ["LAT_14", "LNG_14"],
+        ["LAT_15", "LNG_15"],
+        ["LAT_16", "LNG_16"],
+        ["LAT_17", "LNG_17"],
+        ["LAT_18", "LNG_18"],
+        ["LAT_19", "LNG_19"],
+        ["LAT_20", "LNG_20"]
+      ],
+      "max_capacity": 90,
+      "enabled": true
+    }
+  },
+  "global_settings": {
+    "heatmap_intensity_range": [0.3, 1.0],
+    "use_time_decay": true,
+    "detection_blur_radius": 15,
+    "heatmap_update_interval_ms": 1000,
+    "min_confidence_threshold": 0.5
+  }
+}

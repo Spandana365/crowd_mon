@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Zone Mapping</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        html, body { margin: 0; padding: 0; height: 100%; font-family: Arial, sans-serif; background: #f5f5f5; overflow: hidden; }
+        #container { display: flex; height: 100%; }
+        #sidebar { width: 340px; min-width: 280px; max-width: 380px; background: #ffffff; border-right: 1px solid #ddd; box-sizing: border-box; padding: 20px; overflow-y: auto; }
+        #instructions { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-bottom: 16px; line-height: 1.5; }
+        #map { flex: 1; height: 100%; }
+        button { width: 100%; padding: 12px 14px; margin-bottom: 10px; font-size: 14px; border: 1px solid #999; border-radius: 6px; background: #fff; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+        button:hover:not(:disabled) { background: #eef; }
+        button.active { border-color: #007bff; background: #007bff; color: #fff; }
+        button:disabled { opacity: 0.55; cursor: not-allowed; }
+        #location-search { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; margin-bottom: 8px; }
+        #search-results { max-height: 180px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+        .search-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; }
+        .search-item:hover { background: #f0f8ff; }
+        .back-link { display:inline-block; margin-bottom: 10px; text-decoration:none; color:#1d4ed8; font-weight:600; }
+    </style>
+</head>
+<body>
+<div id="container">
+<div id="sidebar">
+    <a class="back-link" href="/organizer">← Back to Organizer</a>
+    <h2>Layout Builder</h2>
+    <div id="instructions">Step 1: Click "Draw Boundary" and hold left mouse button to draw the freehand perimeter.<br><br>Step 2: After boundary is created, click "Draw Zone" to add inner zones freely.</div>
+    <div style="margin-bottom: 12px;">
+        <label style="display:block; font-weight:700; margin-bottom:8px;">Event</label>
+        <select id="event-select" style="width:100%; padding:10px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px;"></select>
+        <div id="event-empty" style="display:none; margin-top:8px; padding:10px; border:1px dashed #94a3b8; border-radius:8px; background:#f1f5f9; color:#475569;">
+            No events found. Run a prediction first.
+        </div>
+    </div>
+    <input id="location-search" type="text" placeholder="Search location (e.g. Palace Grounds, Bengaluru)" />
+    <div id="search-results"></div>
+    <button id="start-boundary">Draw Boundary</button>
+    <button id="start-zone" disabled>Draw Zone</button>
+    <button id="save-layout">Save Layout</button>
+    <button id="reset-layout">Reset Layout</button>
+</div>
+<div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+var map = L.map('map').setView([12.9716, 77.5946], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 20 }).addTo(map);
+var boundaryLayer = null, zoneGroup = new L.FeatureGroup().addTo(map), drawnItems = new L.FeatureGroup().addTo(map), currentLine = null, currentPoints = [], drawMode = null, zoneCount = 0;
+var instructions = document.getElementById('instructions'), startBoundaryButton = document.getElementById('start-boundary'), startZoneButton = document.getElementById('start-zone');
+
+function setStatus(message) { instructions.innerHTML = message; }
+function setActiveMode(mode) { drawMode = mode; setStatus(mode === 'boundary' ? 'Boundary drawing active.' : 'Zone drawing active.'); startBoundaryButton.classList.toggle('active', mode === 'boundary'); startZoneButton.classList.toggle('active', mode === 'zone'); }
+function stopDrawing() { drawMode = null; if (currentLine) { map.removeLayer(currentLine); currentLine = null; } currentPoints = []; map.dragging.enable(); startBoundaryButton.classList.remove('active'); startZoneButton.classList.remove('active'); setStatus(boundaryLayer ? 'Boundary set. Draw inner zones.' : 'Step 1: Draw the outer boundary polygon for the event venue.'); }
+function startFreehand(mode) { if (mode === 'zone' && !boundaryLayer) { alert('Draw boundary first.'); return; } setActiveMode(mode); }
+
+startBoundaryButton.addEventListener('click', function () { startFreehand('boundary'); });
+startZoneButton.addEventListener('click', function () { startFreehand('zone'); });
+
+map.on('mousedown', function (e) {
+    if (!drawMode) return;
+    if (drawMode === 'boundary' && boundaryLayer) { alert('Boundary already set. Reset to draw again.'); return; }
+    currentPoints = [e.latlng];
+    currentLine = L.polyline(currentPoints, { color: drawMode === 'boundary' ? '#d9534f' : '#337ab7', weight: 4, dashArray: '6, 6' }).addTo(map);
+    map.dragging.disable();
+    map.on('mousemove', onMouseMove);
+    map.once('mouseup', finishFreehand);
+});
+function onMouseMove(e) { if (!currentLine) return; currentPoints.push(e.latlng); currentLine.setLatLngs(currentPoints); }
+function finishFreehand(e) {
+    if (!currentLine) return;
+    map.off('mousemove', onMouseMove); map.dragging.enable(); currentPoints.push(e.latlng);
+    if (currentPoints.length < 3) { map.removeLayer(currentLine); currentLine = null; currentPoints = []; alert('Draw a larger shape.'); stopDrawing(); return; }
+    var layer = L.polygon(currentPoints, { color: drawMode === 'boundary' ? '#d9534f' : '#337ab7', weight: 3, fillOpacity: drawMode === 'boundary' ? 0.12 : 0.22 });
+    if (drawMode === 'boundary') { boundaryLayer = layer; startZoneButton.disabled = false; } else { zoneCount += 1; layer.feature = { type: 'Feature', properties: { name: 'Zone ' + zoneCount } }; zoneGroup.addLayer(layer); }
+    drawnItems.addLayer(layer); map.removeLayer(currentLine); currentLine = null; currentPoints = []; stopDrawing();
+}
+
+document.getElementById('save-layout').addEventListener('click', function () {
+    if (!boundaryLayer) { alert('Please draw the outer boundary first.'); return; }
+    var boundaryGeoJSON = boundaryLayer.toGeoJSON();
+    var zoneFeatures = zoneGroup.getLayers().map(function (layer) { var geojson = layer.toGeoJSON(); geojson.properties = geojson.properties || {}; if (layer.feature && layer.feature.properties && layer.feature.properties.name) { geojson.properties.name = layer.feature.properties.name; } return geojson; });
+    var eventId = document.getElementById('event-select').value;
+    if (!eventId) { alert('Please select an event first.'); return; }
+    fetch('/api/layout/' + encodeURIComponent(eventId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boundary: boundaryGeoJSON, zones: { type: 'FeatureCollection', features: zoneFeatures } })
+    }).then(function(res) {
+        if (!res.ok) throw new Error('Save failed');
+        return res.json();
+    }).then(function() {
+        alert('Layout saved for this event. Public users can now view it.');
+        window.location.href = '/monitoring/' + eventId;
+    }).catch(function(err) {
+        alert('Failed to save layout: ' + err);
+    });
+});
+document.getElementById('reset-layout').addEventListener('click', function () { drawnItems.clearLayers(); zoneGroup.clearLayers(); boundaryLayer = null; zoneCount = 0; currentLine = null; currentPoints = []; drawMode = null; startZoneButton.disabled = true; setStatus('Step 1: Draw the outer boundary polygon for the event venue.'); startBoundaryButton.classList.remove('active'); startZoneButton.classList.remove('active'); });
+
+var locationSearch = document.getElementById('location-search'), searchResults = document.getElementById('search-results');
+async function searchLocation(query) {
+    if (!query || query.length < 3) { searchResults.innerHTML = '<div class="search-item">Type at least 3 characters.</div>'; return; }
+    var target = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query) + '&limit=5';
+    var response = await fetch('/proxy?url=' + encodeURIComponent(target), { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) { throw new Error('Proxy error: ' + response.status); }
+    renderSearchResults(await response.json());
+}
+function renderSearchResults(results) {
+    if (!results || !results.features || results.features.length === 0) { searchResults.innerHTML = '<div class="search-item">No results found.</div>'; return; }
+    searchResults.innerHTML = results.features.map(function(item) { var coords = item.geometry && item.geometry.coordinates || []; var lon = coords[0], lat = coords[1]; var label = item.properties && item.properties.name ? item.properties.name : 'Unknown location'; var address = item.properties && item.properties.country ? ', ' + item.properties.country : ''; return '<div class="search-item" data-lat="' + lat + '" data-lon="' + lon + '"><strong>' + label + address + '</strong></div>'; }).join('');
+    document.querySelectorAll('.search-item').forEach(function(item) { item.addEventListener('click', function () { map.setView([parseFloat(this.dataset.lat), parseFloat(this.dataset.lon)], 16); searchResults.innerHTML = ''; }); });
+}
+locationSearch.addEventListener('keypress', function(e) { if (e.key === 'Enter') { searchLocation(locationSearch.value.trim()).catch(function(){}); } });
+locationSearch.addEventListener('input', function() { if (locationSearch.value.length > 2) { searchLocation(locationSearch.value.trim()).catch(function(){ searchResults.innerHTML = '<div class="search-item">Search failed.</div>'; }); } else { searchResults.innerHTML = ''; } });
+
+// Load events into dropdown
+var eventSelect = document.getElementById('event-select');
+var eventEmpty = document.getElementById('event-empty');
+function setSelectedFromQuery() {
+    try {
+        var params = new URLSearchParams(window.location.search);
+        var eid = params.get('event_id');
+        if (eid) eventSelect.value = eid;
+    } catch (e) {}
+}
+fetch('/api/events').then(function(r){ return r.json(); }).then(function(items){
+    eventSelect.innerHTML = '';
+    if (!items || items.length === 0) {
+        eventEmpty.style.display = 'block';
+        eventSelect.style.display = 'none';
+        return;
+    }
+    eventEmpty.style.display = 'none';
+    eventSelect.style.display = 'block';
+    items.forEach(function(e){
+        var opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = e.event_name + ' (' + e.start_date + ' → ' + e.end_date + ')';
+        eventSelect.appendChild(opt);
+    });
+    setSelectedFromQuery();
+}).catch(function(){
+    eventEmpty.style.display = 'block';
+    eventEmpty.textContent = 'Failed to load events list.';
+    eventSelect.style.display = 'none';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organizer Monitoring</title>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f8fafc; color: #0f172a; }
+        .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .card { margin-top: 14px; background: #fff; border: 1px solid #dbeafe; border-radius: 16px; box-shadow: 0 12px 24px rgba(30, 64, 175, 0.08); padding: 26px; }
+        h1 { margin: 0 0 6px 0; }
+        p { margin-top: 8px; color: #334155; }
+        .row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-top: 16px; }
+        label { display:block; font-weight: 700; margin-bottom: 8px; }
+        select { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 15px; }
+        button { border: none; background: #2563eb; color: white; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: 700; }
+        button:hover { background: #1d4ed8; }
+        .empty { margin-top: 12px; padding: 12px 14px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f1f5f9; color: #475569; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <a href="/">← Back</a>
+        <div class="card">
+            <h1>Crowd Monitoring (Organizer)</h1>
+            <p>Choose an event. This view includes the video upload / URL inputs per zone.</p>
+
+            <div class="row">
+                <div>
+                    <label for="eventSelect">Event</label>
+                    <select id="eventSelect"></select>
+                    <div id="emptyState" class="empty" style="display:none;">No events yet. Run a prediction first.</div>
+                </div>
+                <div>
+                    <button id="openBtn" type="button">Open Dashboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const BACKEND = "{{ backend_url }}";
+const select = document.getElementById('eventSelect');
+const emptyState = document.getElementById('emptyState');
+const openBtn = document.getElementById('openBtn');
+
+async function loadEvents() {
+    const res = await fetch(BACKEND + '/api/events');
+    const items = await res.json();
+    select.innerHTML = '';
+    if (!items || items.length === 0) {
+        emptyState.style.display = 'block';
+        select.style.display = 'none';
+        openBtn.disabled = true;
+        return;
+    }
+    emptyState.style.display = 'none';
+    select.style.display = 'block';
+    openBtn.disabled = false;
+
+    for (const e of items) {
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        const range = `${e.start_date} → ${e.end_date}`;
+        const risk = e.risk_level ? ` | ${e.risk_level}` : '';
+        opt.textContent = `${e.event_name} (${range})${risk}`;
+        select.appendChild(opt);
+    }
+}
+
+openBtn.addEventListener('click', () => {
+    const id = select.value;
+    if (!id) return;
+    window.location.href = `/monitoring-organizer/${id}`;
+});
+
+loadEvents().catch(() => {
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'Failed to load events.';
+    select.style.display = 'none';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organizer Dashboard</title>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; min-height: 100vh; background: radial-gradient(circle at top, #e0ecff 0%, #f7f9ff 45%, #eef3ff 100%); color: #0f172a; }
+        .page { max-width: 1100px; margin: 0 auto; padding: 48px 24px; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .title { margin-top: 14px; margin-bottom: 22px; }
+        .title h1 { margin: 0; font-size: 34px; }
+        .title p { margin-top: 8px; color: #334155; }
+        .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+        .card { background: #fff; border: 1px solid #dbe5ff; border-radius: 18px; box-shadow: 0 16px 32px rgba(30, 64, 175, 0.12); padding: 26px; }
+        .card h2 { margin-top: 0; margin-bottom: 8px; }
+        .card p { color: #334155; line-height: 1.55; }
+        .btn { display: inline-block; text-decoration: none; padding: 12px 14px; border-radius: 10px; border: 1px solid #2563eb; color: #2563eb; font-weight: 700; text-align: center; background: #eff6ff; }
+        .btn:hover { background: #dbeafe; }
+        .sub-actions { display: grid; gap: 12px; margin-top: 18px; }
+        .placeholder { margin-top: 14px; padding: 14px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f8fafc; color: #475569; }
+        @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <a href="/">← Back</a>
+        <div class="title">
+            <h1>Organizer Dashboard</h1>
+            <p>Use Crowd Prediction + Layout Design. Public users will later select your event in monitoring.</p>
+        </div>
+
+        <div class="cards">
+            <section class="card">
+                <h2>Crowd Prediction</h2>
+                <p>Run the sentiment + model pipeline and save the result for public monitoring.</p>
+                <div class="sub-actions">
+                    <a class="btn" href="/prediction">Open Prediction</a>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Layout Design</h2>
+                <p>Draw boundary and zones, then save layout to the selected event.</p>
+                <div class="sub-actions">
+                    <a class="btn" href="/layout">Open Layout Designer</a>
+                </div>
+                <div class="placeholder">
+                    Tip: run a prediction first so the event appears in the layout dropdown.
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Crowd Monitoring</h2>
+                <p>Open monitoring for an event. Organizer view includes zone-wise video upload inputs.</p>
+                <div class="sub-actions">
+                    <a class="btn" href="/organizer-monitoring">Open Crowd Monitoring</a>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>
+

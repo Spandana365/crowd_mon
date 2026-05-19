@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoring Dashboard (Organizer)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f8fafc; color: #0f172a; }
+        #container { display: flex; height: 100vh; }
+        #map { flex: 7; position: relative; }
+        #sidebar { flex: 3; min-width: 320px; max-width: 460px; padding: 16px; border-left: 1px solid #e2e8f0; overflow-y: auto; background: #ffffff; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .card { margin-top: 12px; padding: 14px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .muted { color: #475569; }
+        .empty { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f1f5f9; color:#475569; }
+        .zone-row { display:flex; justify-content:space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0; background:#fff; margin-top: 10px; align-items: center; }
+        .btn { border:none; background:#2563eb; color:#fff; border-radius: 10px; padding: 10px 12px; font-weight:700; cursor:pointer; font-size: 14px; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-secondary { background: #64748b; }
+        .field { margin-top: 10px; }
+        .field label { display:block; font-weight:700; margin-bottom: 6px; font-size: 13px; }
+        .field input, .field select { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #cbd5e1; border-radius:10px; }
+        .metric-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+        .metric { border:1px solid #dbeafe; border-radius: 10px; padding: 10px; background:#eff6ff; }
+        .metric .k { font-size: 11px; color:#334155; }
+        .metric .v { font-size: 18px; font-weight: 900; color:#1d4ed8; }
+        .zone-source-card { margin-top: 10px; border: 1px solid #dbeafe; border-radius: 12px; padding: 10px; background: #fff; }
+        .heatmap-legend { margin-top: 10px; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; }
+        .tabs { display: flex; gap: 8px; margin-top: 10px; border-bottom: 1px solid #e2e8f0; }
+        .tab-btn { padding: 8px 12px; background: transparent; border: none; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+        .tab-content { display: none; margin-top: 10px; }
+        .tab-content.active { display: block; }
+        .toggle-heatmap { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+        .toggle-heatmap input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="map"></div>
+    <div id="sidebar">
+        <a href="/organizer-monitoring">← Change Event</a>
+        <h2 style="margin: 10px 0 0 0;">Monitoring Dashboard (Organizer)</h2>
+        <div class="muted">{{ event.event_name }} ({{ event.start_date }} → {{ event.end_date }})</div>
+
+        <!-- Predicted Crowd Summary Card -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; gap: 8px; align-items:center;">
+                <div><strong>Predicted crowd</strong></div>
+                <div class="pill">{{ event.risk_level or "Unknown" }}</div>
+            </div>
+            <div style="margin-top:10px; font-size: 26px; font-weight: 900; color:#1d4ed8;">
+                {{ event.final_crowd or "—" }}
+            </div>
+            <div class="muted" style="margin-top:6px;">
+                Capacity: {{ event.venue_capacity or "—" }} | Ratio: {{ event.congestion_ratio or "—" }}
+            </div>
+        </div>
+
+        <!-- Zones & Heatmap Card -->
+        <div class="card">
+            <strong>Zones & Heatmap</strong>
+            <div class="muted" style="margin-top:8px;">Run inference to update zone-wise count and generate heatmaps.</div>
+            
+            <div class="toggle-heatmap">
+                <input type="checkbox" id="enableHeatmap" checked />
+                <label for="enableHeatmap" style="margin: 0; cursor: pointer;">Show heatmap overlay</label>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="zones-tab">Zones</button>
+                <button class="tab-btn" data-tab="heatmap-tab">Heatmap</button>
+            </div>
+
+            <!-- Zones Tab -->
+            <div id="zones-tab" class="tab-content active">
+                <div id="zoneList" style="margin-top:10px;"></div>
+            </div>
+
+            <!-- Heatmap Tab -->
+            <div id="heatmap-tab" class="tab-content">
+                <div class="muted" style="margin-top:8px;">Heatmap shows crowd density by transformed pixels.</div>
+                <div class="heatmap-legend">
+                    <strong>Intensity Scale:</strong>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: green;"></div>
+                        <span>Low density</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: yellow;"></div>
+                        <span>Medium density</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: orange;"></div>
+                        <span>High density</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: red;"></div>
+                        <span>Critical density</span>
+                    </div>
+                </div>
+                <div id="heatmapStats" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+        </div>
+
+        <!-- Video Inference Card -->
+        <div class="card">
+            <strong>Video Inference (OMAN + Students)</strong>
+            <div class="field">
+                <label for="modelType">Model</label>
+                <select id="modelType">
+                    <option>OMAN (SENSE teacher)</option>
+                    <option>MobileNet Student (legacy)</option>
+                    <option>MobileNet KD Stable (epoch 10)</option>
+                </select>
+            </div>
+            <div id="zoneVideoInputs" class="field"></div>
+            <div id="globalFallbackInputs" class="field" style="display:none;">
+                <label for="videoFile">Fallback: Upload single video (applies to all zones)</label>
+                <input id="videoFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm" />
+                <label for="videoUrl" style="margin-top:8px;">Or fallback video URL</label>
+                <input id="videoUrl" type="text" placeholder="https://.../video.mp4" />
+            </div>
+            <div class="field"><label for="sampleInterval">Sample interval (frames)</label><input id="sampleInterval" type="number" value="45" min="1" /></div>
+            <div class="field"><label for="resizeWidth">Resize width (px)</label><input id="resizeWidth" type="number" value="512" min="256" /></div>
+            <div class="field"><label for="maxSampledFrames">Max sampled frames</label><input id="maxSampledFrames" type="number" value="40" min="8" /></div>
+            <button id="runBtn" class="btn" style="margin-top:10px; width:100%;">Run Inference</button>
+            <div id="inferStatus" class="muted" style="margin-top:8px;"></div>
+            <div class="metric-grid" id="inferMetrics" style="display:none;">
+                <div class="metric"><div class="k">Final Count</div><div class="v" id="mFinal">—</div></div>
+                <div class="metric"><div class="k">First Frame</div><div class="v" id="mFirst">—</div></div>
+                <div class="metric"><div class="k">Max Count</div><div class="v" id="mMax">—</div></div>
+                <div class="metric"><div class="k">Heatmap Points</div><div class="v" id="mHeatPoints">—</div></div>
+            </div>
+        </div>
+
+        <div id="layoutEmpty" class="empty" style="display:none;">
+            No layout saved for this event yet. Create one in Layout Design.
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+!function(){"use strict";var t=L.Layer?L.Layer:L.Class;L.HeatLayer=t.extend({initialize:function(t,i){this._latlngs=t,L.setOptions(this,i)},setLatLngs:function(t){return this._latlngs=t,this.redraw()},addLatLng:function(t){return this._latlngs.push(t),this.redraw()},setOptions:function(t){return L.setOptions(this,t),this._heat&&this._updateOptions(),this.redraw()},redraw:function(){return this._heat&&!this._frame&&this._map&&!this._map._animating&&(this._frame=L.Util.requestAnimFrame(this._redraw,this)),this},onAdd:function(t){this._map=t;var i=this._canvas=L.DomUtil.create("canvas","leaflet-heatmap-layer leaflet-layer");var e=t.getPanes().overlayPane;e.appendChild(i);t.on("moveend",this._reset,this);if(t.options.zoomAnimation&&L.Browser.any3d){t.on("zoomanim",this._animateZoom,this)}this._reset()},onRemove:function(t){t.getPanes().overlayPane.removeChild(this._canvas);t.off("moveend",this._reset,this);if(t.options.zoomAnimation){t.off("zoomanim",this._animateZoom,this)}},addTo:function(t){return t.addLayer(this),this},_reset:function(){var t=this._canvas,i=this._map.getSize();t.width=i.x;t.height=i.y;var e=this._map.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(t,e);this._redraw()},_redraw:function(){this._frame=null;if(!this._map)return;var canvas=this._canvas,ctx=canvas.getContext("2d"),r=this.options.radius||25,blur=this.options.blur||15,max=this.options.max||1.0,minOp=this.options.minOpacity||0.05;var grad=this.options.gradient||{0.4:"blue",0.65:"lime",1.0:"red"};// build gradient image
+var g=ctx.createLinearGradient(0,0,0,256);Object.keys(grad).forEach(function(s){g.addColorStop(+s,grad[s])});var gCanvas=document.createElement("canvas");gCanvas.width=1;gCanvas.height=256;var gCtx=gCanvas.getContext("2d");var grd=gCtx.createLinearGradient(0,0,0,256);Object.keys(grad).forEach(function(s){grd.addColorStop(+s,grad[s])});gCtx.fillStyle=grd;gCtx.fillRect(0,0,1,256);var palette=gCtx.getImageData(0,0,1,256).data;// draw circles
+var circleCanvas=document.createElement("canvas"),cr=r+blur;circleCanvas.width=circleCanvas.height=cr*2;var cCtx=circleCanvas.getContext("2d");cCtx.shadowOffsetX=cCtx.shadowOffsetY=200;cCtx.shadowBlur=blur;cCtx.shadowColor="black";cCtx.beginPath();cCtx.arc(cr-200,cr-200,r,0,Math.PI*2,true);cCtx.closePath();cCtx.fill();ctx.clearRect(0,0,canvas.width,canvas.height);var pts=this._latlngs;for(var i=0,len=pts.length;i<len;i++){var p=pts[i],ll=Array.isArray(p)?L.latLng(p[0],p[1]):p,cp=this._map.latLngToContainerPoint(ll),w=Array.isArray(p)&&p.length>2?Math.min(p[2]/max,1):1;ctx.globalAlpha=Math.max(minOp,w);ctx.drawImage(circleCanvas,cp.x-cr,cp.y-cr)}// colorize
+var imgData=ctx.getImageData(0,0,canvas.width,canvas.height),data=imgData.data;for(var j=3,len2=data.length;j<len2;j+=4){var alpha=data[j],offset=alpha*4;if(offset){data[j-3]=palette[offset];data[j-2]=palette[offset+1];data[j-1]=palette[offset+2];data[j]=alpha}}ctx.putImageData(imgData,0,0)},_animateZoom:function(t){var i=this._map.getZoomScale(t.zoom),e=this._map._getCenterOffset(t.center)._multiplyBy(-i).subtract(this._map._getMapPanePos());L.DomUtil.setTransform?L.DomUtil.setTransform(this._canvas,e,i):this._canvas.style[L.DomUtil.TRANSFORM]=L.DomUtil.getTranslateString(e)+" scale("+i+")"}});L.heatLayer=function(t,i){return new L.HeatLayer(t,i)}}();
+</script>
+<script>
+const boundary = {{ boundary|tojson }};
+const zones = {{ zones|tojson }};
+const eventId = {{ event.id }};
+
+// Initialize map - fit to layout if available
+var map = L.map('map').setView([20.5937, 78.9629], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 20
+}).addTo(map);
+
+// UI elements
+const zoneList = document.getElementById('zoneList');
+const layoutEmpty = document.getElementById('layoutEmpty');
+const inferStatus = document.getElementById('inferStatus');
+const inferMetrics = document.getElementById('inferMetrics');
+const runBtn = document.getElementById('runBtn');
+const zoneVideoInputs = document.getElementById('zoneVideoInputs');
+const globalFallbackInputs = document.getElementById('globalFallbackInputs');
+const enableHeatmapCheckbox = document.getElementById('enableHeatmap');
+const heatmapStats = document.getElementById('heatmapStats');
+
+// Map layers
+let zoneMarkers = {};
+let zoneRows = [];
+let heatLayer = L.layerGroup().addTo(map);
+let heatmapLayer = null;
+let allHeatmapPoints = [];
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const tabName = this.dataset.tab;
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(tabName).classList.add('active');
+        this.classList.add('active');
+        map.invalidateSize();
+    });
+});
+
+// Heatmap toggle
+enableHeatmapCheckbox.addEventListener('change', function() {
+    if (this.checked && allHeatmapPoints.length > 0) {
+        drawLeafletHeatmap(allHeatmapPoints);
+    } else {
+        stopAnimation();
+        if (heatmapLayer) { map.removeLayer(heatmapLayer); heatmapLayer = null; }
+    }
+});
+
+// Render boundary
+if (!boundary && !zones) {
+    layoutEmpty.style.display = 'block';
+}
+
+if (boundary) {
+    const b = L.geoJSON(boundary, { 
+        style: { color: '#d9534f', fillOpacity: 0.10, weight: 2 } 
+    }).addTo(map);
+    try { 
+        map.fitBounds(b.getBounds(), { padding: [20, 20] }); 
+    } catch (e) {}
+}
+
+// Render zones
+if (zones && zones.features && zones.features.length > 0) {
+    const z = L.geoJSON(zones, {
+        style: () => ({ color: '#2563eb', fillOpacity: 0.18, weight: 2, fillColor: '#3b82f6' }),
+        onEachFeature: function(feature, layer) {
+            const name = feature.properties && feature.properties.name ? feature.properties.name : 'Zone';
+            layer.bindPopup(name);
+
+            const row = document.createElement('div');
+            row.className = 'zone-row';
+            row.innerHTML = `<div><strong>${name}</strong><div class="muted">Current people count</div></div>` +
+                            `<div style="font-size:20px; font-weight:900; color:#1d4ed8;" data-zone-count>0</div>`;
+            zoneList.appendChild(row);
+            zoneRows.push({ name, el: row.querySelector('[data-zone-count]') });
+        }
+    }).addTo(map);
+    try { 
+        map.fitBounds(z.getBounds(), { padding: [20, 20] }); 
+    } catch (e) {}
+} else if (zones && (!zones.features || zones.features.length === 0)) {
+    const p = document.createElement('div');
+    p.className = 'muted';
+    p.textContent = 'No zones saved.';
+    zoneList.appendChild(p);
+}
+
+let animTimer = null;
+
+function startAnimation(frames) {
+    if (animTimer) clearInterval(animTimer);
+    let fi = 0;
+    animTimer = setInterval(function() {
+        if (!enableHeatmapCheckbox.checked) return;
+        drawLeafletHeatmap(frames[fi]);
+        heatmapStats.innerHTML = `<strong>Frame:</strong> ${fi+1}/${frames.length} &nbsp; <strong>Points:</strong> ${frames[fi].length}`;
+        fi = (fi + 1) % frames.length;
+    }, 800);
+}
+
+function stopAnimation() {
+    if (animTimer) { clearInterval(animTimer); animTimer = null; }
+}
+
+function drawLeafletHeatmap(points) {
+    if (heatmapLayer) { map.removeLayer(heatmapLayer); heatmapLayer = null; }
+    if (!points || points.length === 0) {
+        heatmapStats.innerHTML = '<div class="muted">No heatmap data available</div>';
+        return;
+    }
+    const heatPoints = points.map(p => [p.lat, p.lng, p.intensity || 0.6]);
+    heatmapLayer = L.heatLayer(heatPoints, {
+        radius: 12, blur: 18, max: 1.0, minOpacity: 0.5,
+        gradient: { 0.0: 'green', 0.4: 'yellow', 0.7: 'orange', 1.0: 'red' }
+    }).addTo(map);
+    heatmapStats.innerHTML = `<strong>Points:</strong> ${points.length}`;
+}
+
+function updateZoneCounts(zoneCounts) {
+    if (!zoneCounts || zoneCounts.length === 0) return;
+    const byName = new Map(zoneCounts.map(z => [z.zone_name, z.people_count]));
+    zoneRows.forEach(z => {
+        if (byName.has(z.name)) z.el.textContent = byName.get(z.name);
+    });
+}
+
+function renderZoneSourceInputs() {
+    zoneVideoInputs.innerHTML = '';
+    if (!zoneRows.length) {
+        globalFallbackInputs.style.display = 'block';
+        return;
+    }
+    globalFallbackInputs.style.display = 'none';
+    zoneRows.forEach((z, idx) => {
+        const card = document.createElement('div');
+        card.className = 'zone-source-card';
+        card.innerHTML = `
+            <div style="font-weight:700;">${z.name}</div>
+            <label style="display:block; margin-top:8px; font-size:13px;">Upload video</label>
+            <input type="file" data-zone-file="${idx}" accept=".mp4,.avi,.mov,.mkv,.webm" />
+            <label style="display:block; margin-top:8px; font-size:13px;">Or video URL</label>
+            <input type="text" data-zone-url="${idx}" placeholder="https://.../zone-video.mp4" />
+        `;
+        zoneVideoInputs.appendChild(card);
+    });
+}
+
+async function runInference() {
+    const file = document.getElementById('videoFile') ? document.getElementById('videoFile').files[0] : null;
+    const videoUrl = document.getElementById('videoUrl') ? document.getElementById('videoUrl').value.trim() : '';
+    runBtn.disabled = true;
+    inferStatus.textContent = 'Running inference... this can take time.';
+    inferMetrics.style.display = 'none';
+    stopAnimation();
+    allHeatmapPoints = [];
+    
+    try {
+        const fd = new FormData();
+        let zoneSourceCount = 0;
+        
+        if (zoneRows.length) {
+            zoneRows.forEach((z, idx) => {
+                const f = document.querySelector(`[data-zone-file="${idx}"]`);
+                const u = document.querySelector(`[data-zone-url="${idx}"]`);
+                const zoneFile = f && f.files && f.files[0] ? f.files[0] : null;
+                const zoneUrl = u ? u.value.trim() : '';
+                if (zoneFile) {
+                    fd.append(`zone_video_${idx}`, zoneFile);
+                    zoneSourceCount += 1;
+                }
+                if (zoneUrl) {
+                    fd.append(`zone_url_${idx}`, zoneUrl);
+                    zoneSourceCount += 1;
+                }
+            });
+        }
+        
+        if (zoneSourceCount === 0) {
+            if (file) fd.append('video_file', file);
+            if (videoUrl) fd.append('video_url', videoUrl);
+        }
+        
+        if (zoneSourceCount === 0 && !file && !videoUrl) {
+            throw new Error('Please upload a video/URL for at least one zone.');
+        }
+        
+        fd.append('model_type', document.getElementById('modelType').value);
+        fd.append('sample_interval', document.getElementById('sampleInterval').value);
+        fd.append('resize_width', document.getElementById('resizeWidth').value);
+        fd.append('max_sampled_frames', document.getElementById('maxSampledFrames').value);
+
+        const res = await fetch(`/api/monitoring/${eventId}/analyze`, { method: 'POST', body: fd });
+        const payload = await res.json();
+        
+        if (!res.ok || payload.error) {
+            throw new Error(payload.error || 'Inference failed');
+        }
+
+        const result = payload.result || {};
+        
+        // Update metrics
+        document.getElementById('mFinal').textContent = result.video_num ?? '—';
+        document.getElementById('mFirst').textContent = result.first_frame_num ?? '—';
+        document.getElementById('mMax').textContent = result.max_count ?? '—';
+        
+        // Collect all heatmap points from all frames
+        const heatmapPoints = payload.heatmap_points || [];
+        const animFrames = payload.animation_frames || [];
+        allHeatmapPoints = heatmapPoints;
+        document.getElementById('mHeatPoints').textContent = heatmapPoints.length;
+        inferMetrics.style.display = 'grid';
+        updateZoneCounts(payload.zone_counts || []);
+
+        if (enableHeatmapCheckbox.checked) {
+            if (animFrames.length > 1) {
+                startAnimation(animFrames);
+            } else if (heatmapPoints.length > 0) {
+                drawLeafletHeatmap(heatmapPoints);
+            }
+        }
+        
+        inferStatus.textContent = `Done with ${payload.model_type}. Generated ${heatmapPoints.length} heatmap points.`;
+    } catch (err) {
+        inferStatus.textContent = `Inference failed: ${err.message}`;
+    } finally {
+        runBtn.disabled = false;
+    }
+}
+
+renderZoneSourceInputs();
+runBtn.addEventListener('click', runInference);
+</script>
+</body>
+</html>

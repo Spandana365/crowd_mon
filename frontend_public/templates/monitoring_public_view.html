@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoring Dashboard (Public)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f8fafc; color: #0f172a; }
+        #container { display: flex; height: 100vh; }
+        #map { flex: 7; position: relative; }
+        #sidebar { flex: 3; min-width: 320px; max-width: 460px; padding: 16px; border-left: 1px solid #e2e8f0; overflow-y: auto; background: #ffffff; }
+        a { text-decoration: none; color: #1d4ed8; font-weight: 600; }
+        .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .card { margin-top: 12px; padding: 14px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .muted { color: #475569; }
+        .empty { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed #94a3b8; background: #f1f5f9; color:#475569; }
+        .zone-row { display:flex; justify-content:space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0; background:#fff; margin-top: 10px; align-items: center; }
+        .tabs { display: flex; gap: 8px; margin-top: 10px; border-bottom: 1px solid #e2e8f0; }
+        .tab-btn { padding: 8px 12px; background: transparent; border: none; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+        .tab-content { display: none; margin-top: 10px; }
+        .tab-content.active { display: block; }
+        .heatmap-legend { margin-top: 10px; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; }
+        .auto-refresh-indicator { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: #ecf0f1; border-radius: 8px; }
+        .pulse { display: inline-block; width: 12px; height: 12px; background: #2ecc71; border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        /* GPS marker */
+        .gps-dot { width: 18px; height: 18px; background: #2563eb; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 3px rgba(37,99,235,0.35); animation: gps-pulse 2s infinite; }
+        @keyframes gps-pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(37,99,235,0.35); } 50% { box-shadow: 0 0 0 8px rgba(37,99,235,0.10); } }
+        .gps-status-ok   { color: #16a34a; font-weight: 700; }
+        .gps-status-warn { color: #d97706; font-weight: 700; }
+        .gps-status-err  { color: #dc2626; font-weight: 700; }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="map"></div>
+    <div id="sidebar">
+        <a href="/">← Change Event</a>
+        <h2 style="margin: 10px 0 0 0;">Monitoring Dashboard (Public)</h2>
+        <div class="muted">{{ event.event_name }} ({{ event.start_date }} → {{ event.end_date }})</div>
+
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; gap: 8px; align-items:center;">
+                <div><strong>Predicted crowd</strong></div>
+                <div class="pill">{{ event.risk_level or "Unknown" }}</div>
+            </div>
+            <div style="margin-top:10px; font-size: 26px; font-weight: 900; color:#1d4ed8;">
+                {{ event.final_crowd or "—" }}
+            </div>
+            <div class="muted" style="margin-top:6px;">
+                Capacity: {{ event.venue_capacity or "—" }} | Ratio: {{ event.congestion_ratio or "—" }}
+            </div>
+        </div>
+
+        <div class="card">
+            <strong>Zones & Heatmap</strong>
+            <div class="muted" style="margin-top:8px;">Live zone data and heatmap visualization.</div>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="zones-tab">Zones</button>
+                <button class="tab-btn" data-tab="heatmap-tab">Heatmap</button>
+            </div>
+            <div id="zones-tab" class="tab-content active">
+                <div id="zoneList" style="margin-top:10px;"></div>
+                <div class="auto-refresh-indicator">
+                    <span class="pulse"></span>
+                    <span>Live updates every 8 seconds</span>
+                </div>
+            </div>
+            <div id="heatmap-tab" class="tab-content">
+                <div class="muted" style="margin-top:8px;">Heatmap shows crowd density distribution.</div>
+                <div class="heatmap-legend">
+                    <strong>Intensity Scale:</strong>
+                    <div class="legend-item"><div class="legend-color" style="background: green;"></div><span>Low density</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: yellow;"></div><span>Medium density</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: orange;"></div><span>High density</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: red;"></div><span>Critical density</span></div>
+                </div>
+                <div id="heatmapStats" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+        </div>
+
+        <div id="layoutEmpty" class="empty" style="display:none;">
+            No layout saved for this event yet. Ask an organizer to create one in Layout Design.
+        </div>
+
+        <!-- GPS Location Card -->
+        <div class="card" id="gpsCard">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>📍 Your Location</strong>
+                <span id="gpsStatusBadge" class="gps-status-warn">Locating…</span>
+            </div>
+            <div id="gpsCoords" class="muted" style="margin-top:8px; font-size:13px;">Waiting for GPS…</div>
+            <div id="gpsZone" style="margin-top:8px; font-size:13px;"></div>
+            <div id="gpsAccuracy" class="muted" style="margin-top:4px; font-size:12px;"></div>
+            <button id="gpsCenterBtn" onclick="centerOnUser()" style="margin-top:10px; width:100%; padding:8px; border:1px solid #2563eb; background:#eff6ff; color:#2563eb; border-radius:8px; cursor:pointer; font-weight:700;">Center map on me</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+const BACKEND = "{{ backend_url }}";
+const boundary = {{ boundary|tojson }};
+const zones = {{ zones|tojson }};
+
+const POLL_MS = 8000;        // fetch fresh data every 8 s
+const FRAME_MS = 900;        // cycle animation frames every 0.9 s between polls
+
+var map = L.map('map').setView([12.9716, 77.5946], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 20 }).addTo(map);
+
+const zoneList    = document.getElementById('zoneList');
+const layoutEmpty = document.getElementById('layoutEmpty');
+const heatmapStats = document.getElementById('heatmapStats');
+
+let zoneRows     = [];
+let heatmapLayer = null;
+let animFrames   = [];   // animation_frames from last poll
+let frameIdx     = 0;
+let frameTimer   = null;
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(this.dataset.tab).classList.add('active');
+        this.classList.add('active');
+        map.invalidateSize();
+    });
+});
+
+// ── Static layout rendering ──────────────────────────────────────────────────
+if (!boundary && !zones) layoutEmpty.style.display = 'block';
+
+if (boundary) {
+    const b = L.geoJSON(boundary, { style: { color: '#d9534f', fillOpacity: 0.10, weight: 2 } }).addTo(map);
+    try { map.fitBounds(b.getBounds(), { padding: [20, 20] }); } catch (e) {}
+}
+
+if (zones && zones.features && zones.features.length > 0) {
+    const z = L.geoJSON(zones, {
+        style: () => ({ color: '#2563eb', fillOpacity: 0.18, weight: 2, fillColor: '#3b82f6' }),
+        onEachFeature: function(feature, layer) {
+            const name = (feature.properties && feature.properties.name) ? feature.properties.name : 'Zone';
+            layer.bindPopup(name);
+            const row = document.createElement('div');
+            row.className = 'zone-row';
+            row.innerHTML = `<div><strong>${name}</strong><div class="muted">People count</div></div>`
+                          + `<div style="font-size:20px;font-weight:900;color:#1d4ed8;" data-zone-count>0</div>`;
+            zoneList.appendChild(row);
+            zoneRows.push({ name, el: row.querySelector('[data-zone-count]') });
+        }
+    }).addTo(map);
+    try { map.fitBounds(z.getBounds(), { padding: [20, 20] }); } catch (e) {}
+} else if (zones && (!zones.features || zones.features.length === 0)) {
+    const p = document.createElement('div');
+    p.className = 'muted';
+    p.textContent = 'No zones saved.';
+    zoneList.appendChild(p);
+}
+
+// ── Heatmap rendering ────────────────────────────────────────────────────────
+function drawHeatmap(points) {
+    if (heatmapLayer) { map.removeLayer(heatmapLayer); heatmapLayer = null; }
+    if (!points || points.length === 0) return;
+    const pts = points.map(p => [
+        p.lat !== undefined ? p.lat : p.y,
+        p.lng !== undefined ? p.lng : p.x,
+        p.intensity !== undefined ? p.intensity : 0.6
+    ]);
+    heatmapLayer = L.heatLayer(pts, {
+        radius: 12,
+        blur: 18,
+        max: 1.0,
+        minOpacity: 0.5,
+        gradient: { 0.0: 'green', 0.4: 'yellow', 0.7: 'orange', 1.0: 'red' }
+    }).addTo(map);
+    heatmapStats.innerHTML = `Points: ${points.length} &nbsp;·&nbsp; Updated: ${new Date().toLocaleTimeString()}`;
+}
+
+// ── Frame animation (cycles through animation_frames between polls) ───────────
+function startFrameAnimation() {
+    if (frameTimer) clearInterval(frameTimer);
+    if (!animFrames || animFrames.length <= 1) return;
+    frameIdx = 0;
+    frameTimer = setInterval(() => {
+        frameIdx = (frameIdx + 1) % animFrames.length;
+        drawHeatmap(animFrames[frameIdx]);
+    }, FRAME_MS);
+}
+
+function stopFrameAnimation() {
+    if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+}
+
+// ── Zone count update ────────────────────────────────────────────────────────
+function updateZoneCounts(zoneCounts) {
+    if (!zoneCounts || zoneCounts.length === 0) return;
+    const byName = new Map(zoneCounts.map(z => [
+        z.zone_name || z.display_name,
+        z.people_count !== undefined ? z.people_count : (z.count ?? 0)
+    ]));
+    zoneRows.forEach(z => { if (byName.has(z.name)) z.el.textContent = byName.get(z.name); });
+}
+
+// ── Main poll ────────────────────────────────────────────────────────────────
+async function poll() {
+    try {
+        const res = await fetch(BACKEND + '/api/public/live-status');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json.success || !json.data) return;
+
+        const { zones: zoneCounts, heatmap_points, animation_frames } = json.data;
+
+        updateZoneCounts(zoneCounts || []);
+
+        // Prefer animation_frames for a live feel; fall back to flat heatmap_points
+        const frames = (animation_frames && animation_frames.length > 0) ? animation_frames : null;
+        const flat   = (heatmap_points && heatmap_points.length > 0) ? heatmap_points : null;
+
+        if (frames) {
+            animFrames = frames;
+            stopFrameAnimation();
+            drawHeatmap(animFrames[0]);   // show first frame immediately
+            startFrameAnimation();         // then cycle through the rest
+        } else if (flat) {
+            stopFrameAnimation();
+            animFrames = [];
+            drawHeatmap(flat);
+        }
+    } catch (err) {
+        console.error('Live status poll failed:', err);
+    }
+}
+
+poll();
+setInterval(poll, POLL_MS);
+
+// ── GPS ──────────────────────────────────────────────────────────────────────
+const gpsIcon = L.divIcon({
+    className: '',
+    html: '<div class="gps-dot"></div>',
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+});
+
+let userMarker    = null;   // blue dot
+let accuracyCircle = null;  // accuracy ring
+let lastLatLng    = null;
+
+// Point-in-polygon (ray casting) for GeoJSON ring coords [lng, lat]
+function pointInRing(lat, lng, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];  // [lng, lat]
+        const [xj, yj] = ring[j];
+        const intersect = ((yi > lat) !== (yj > lat)) &&
+            (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-10) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+// Returns the name of the zone the user is currently inside, or null
+function detectZone(lat, lng) {
+    if (!zones || !zones.features) return null;
+    for (const feature of zones.features) {
+        const geom   = feature.geometry || {};
+        const coords = geom.coordinates || [];
+        const name   = (feature.properties && feature.properties.name) || 'Zone';
+        if (geom.type === 'Polygon') {
+            if (pointInRing(lat, lng, coords[0])) return name;
+        } else if (geom.type === 'MultiPolygon') {
+            for (const poly of coords) {
+                if (pointInRing(lat, lng, poly[0])) return name;
+            }
+        }
+    }
+    return null;
+}
+
+function onGPSSuccess(pos) {
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    lastLatLng = [lat, lng];
+
+    // Place / move blue dot
+    if (!userMarker) {
+        userMarker = L.marker([lat, lng], { icon: gpsIcon, zIndexOffset: 1000 })
+            .bindPopup('You are here')
+            .addTo(map);
+    } else {
+        userMarker.setLatLng([lat, lng]);
+    }
+
+    // Accuracy circle
+    if (!accuracyCircle) {
+        accuracyCircle = L.circle([lat, lng], {
+            radius: accuracy,
+            color: '#2563eb',
+            fillColor: '#2563eb',
+            fillOpacity: 0.08,
+            weight: 1,
+        }).addTo(map);
+    } else {
+        accuracyCircle.setLatLng([lat, lng]);
+        accuracyCircle.setRadius(accuracy);
+    }
+
+    // Sidebar updates
+    document.getElementById('gpsStatusBadge').textContent = '\u25cf Live';
+    document.getElementById('gpsStatusBadge').className =
+        accuracy <= 50 ? 'gps-status-ok' : 'gps-status-warn';
+
+    document.getElementById('gpsCoords').textContent =
+        `Lat: ${lat.toFixed(6)}  Lng: ${lng.toFixed(6)}`;
+
+    document.getElementById('gpsAccuracy').textContent =
+        `Accuracy: \u00b1${Math.round(accuracy)} m`;
+
+    const zoneName = detectZone(lat, lng);
+    const zoneEl   = document.getElementById('gpsZone');
+    if (zoneName) {
+        zoneEl.innerHTML =
+            `<span style="background:#dbeafe;color:#1d4ed8;padding:3px 10px;border-radius:999px;font-weight:700;">` +
+            `\ud83d\udccc Inside: ${zoneName}</span>`;
+    } else {
+        zoneEl.innerHTML =
+            `<span style="color:#64748b;">Outside mapped zones</span>`;
+    }
+}
+
+function onGPSError(err) {
+    const badge = document.getElementById('gpsStatusBadge');
+    badge.className = 'gps-status-err';
+    const msgs = {
+        1: 'Permission denied — allow location access',
+        2: 'Position unavailable',
+        3: 'GPS timeout',
+    };
+    badge.textContent = msgs[err.code] || 'GPS error';
+    document.getElementById('gpsCoords').textContent = '';
+    document.getElementById('gpsZone').textContent   = '';
+}
+
+function centerOnUser() {
+    if (lastLatLng) map.setView(lastLatLng, 18);
+}
+
+if ('geolocation' in navigator) {
+    navigator.geolocation.watchPosition(onGPSSuccess, onGPSError, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,       // accept cached position up to 5 s old
+        timeout: 15000,
+    });
+} else {
+    document.getElementById('gpsStatusBadge').textContent = 'Not supported';
+    document.getElementById('gpsStatusBadge').className   = 'gps-status-err';
+}
+</script>
+</body>
+</html>

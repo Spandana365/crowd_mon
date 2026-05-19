@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Crowd & Risk Predictor</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7fb; margin: 0; padding: 0; color: #222; }
+        .page { max-width: 980px; margin: 0 auto; padding: 24px; }
+        .top-nav { margin-bottom: 14px; }
+        .top-nav a { color: #1d4ed8; text-decoration: none; font-weight: 600; }
+        h1 { margin-bottom: 8px; }
+        .panel { background: white; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 700; }
+        input[type=text], input[type=date], input[type=number], select { width: 100%; padding: 12px 14px; margin-bottom: 18px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 15px; }
+        button { border: none; background: #2563eb; color: white; padding: 14px 20px; border-radius: 12px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #1d4ed8; }
+        .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+        .row.full { grid-template-columns: 1fr; }
+        .result-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .result-card { padding: 18px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .badge { display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 999px; font-weight: 700; }
+        .badge.green { background: #d1fae5; color: #065f46; }
+        .badge.gold { background: #fef3c7; color: #92400e; }
+        .badge.orange { background: #ffedd5; color: #b45309; }
+        .badge.red { background: #fee2e2; color: #991b1b; }
+        .error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; padding: 14px 16px; border-radius: 12px; margin-bottom: 20px; }
+        .note { margin-top: 12px; color: #475569; line-height: 1.6; }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div class="top-nav"><a href="/organizer">← Back to Organizer</a></div>
+    <div class="panel">
+        <h1>Event Crowd & Risk Predictor</h1>
+        <p>Enter event details to run the hybrid pipeline: social-media sentiment + historical crowd prediction.</p>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        {% if backend_status %}
+            <div class="result-card" style="border-color:#60a5fa; background:#eff6ff; margin-bottom:16px;">
+                <strong>Backend status:</strong> {{ backend_status }}
+            </div>
+        {% endif %}
+        <form method="post" action="/prediction">
+            <div class="row">
+                <div><label for="event_name">Event Name</label><input id="event_name" name="event_name" type="text" placeholder="e.g. Ganesh Chaturthi" required></div>
+                <div><label for="start_date">Start Date</label><input id="start_date" name="start_date" type="date" required></div>
+            </div>
+            <div class="row">
+                <div><label for="end_date">End Date</label><input id="end_date" name="end_date" type="date" required></div>
+                <div>
+                    <label for="event_type">Event Type</label>
+                    <select id="event_type" name="event_type" required>
+                        <option value="Commute">Commute</option><option value="Festival">Festival</option><option value="Political">Political</option>
+                        <option value="Relief">Relief</option><option value="Religious">Religious</option><option value="Sports">Sports</option><option value="Travel">Travel</option>
+                    </select>
+                </div>
+                <div><label for="location">Location</label><select id="location" name="location" required><option value="Urban">Urban</option><option value="Rural">Rural</option></select></div>
+            </div>
+            <div class="row">
+                <div><label for="popularity">Popularity</label><select id="popularity" name="popularity" required><option value="Local">Local</option><option value="State">State</option><option value="National">National</option></select></div>
+                <div>
+                    <label for="weather">Weather</label>
+                    <select id="weather" name="weather" required>
+                        <option value="Clear">Clear</option><option value="Clear/Night">Clear/Night</option><option value="Cold">Cold</option><option value="Cold/Clear">Cold/Clear</option>
+                        <option value="Cold/Foggy">Cold/Foggy</option><option value="Cool">Cool</option><option value="Heavy Rain">Heavy Rain</option><option value="Hot">Hot</option>
+                        <option value="Hot/Humid">Hot/Humid</option><option value="Monsoon">Monsoon</option><option value="Pleasant">Pleasant</option><option value="Rainy">Rainy</option><option value="Warm">Warm</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row full"><div><label for="capacity">Venue Capacity</label><input id="capacity" name="capacity" type="number" min="1" placeholder="e.g. 25000" required></div></div>
+            <div class="row full">
+                <div class="result-card" style="background:#eff6ff; border-color:#bfdbfe;">
+                    <label style="margin-bottom:6px;">
+                        <input type="checkbox" name="fast_mode" value="1" />
+                        Fast mode (skip slow sentiment scraping if needed)
+                    </label>
+                    <div class="note" style="margin-top:0;">If enabled, the system uses neutral sentiment when scraping is slow, so you still get a prediction quickly.</div>
+                </div>
+            </div>
+            <button type="submit">Predict Crowd & Risk</button>
+        </form>
+    </div>
+
+    {% if result %}
+        {% if saved_event_id %}
+            <div class="panel" style="border: 1px solid #bbf7d0; background:#f0fdf4;">
+                <strong>Saved:</strong> This event is now available to public users.
+                <div class="note" style="margin-top:10px;">
+                    Next: <a href="/layout?event_id={{ saved_event_id }}">Open Layout Designer for this event</a>
+                </div>
+            </div>
+        {% endif %}
+        {% if result.sentiment_warning %}
+            <div class="panel" style="border: 1px solid #fde68a; background:#fffbeb;">
+                <strong>Sentiment note:</strong> {{ result.sentiment_warning }}<br/>
+                <span class="note">We used a neutral sentiment (0.5) so the crowd prediction could still complete.</span>
+            </div>
+        {% endif %}
+        <div class="panel">
+            <h2>Social Media Sentiment Analysis</h2>
+            <p><strong>Analysis Period:</strong> {{ result.start_date }} to {{ result.end_date }}</p>
+            <div class="result-grid">
+                <div class="result-card"><strong>Total Posts Scraped</strong><p>{{ result.summary.total_posts }}</p></div>
+                <div class="result-card"><strong>Instagram Posts</strong><p>{{ result.summary.instagram_posts }}</p></div>
+                <div class="result-card"><strong>Reddit Posts</strong><p>{{ result.summary.reddit_posts }}</p></div>
+                <div class="result-card"><strong>Overall Sentiment Score</strong><p style="font-size: 24px; font-weight: bold; color: {% if result.average_sentiment >= 0.6 %}#16a34a{% elif result.average_sentiment >= 0.4 %}#ea580c{% else %}#dc2626{% endif %};">{{ result.average_sentiment }}</p></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Crowd Prediction & Risk Assessment</h2>
+            <div class="result-grid">
+                <div class="result-card"><strong>Event Details</strong><p>{{ result.event_name }}<br><small>{{ result.event_type }} | {{ result.location }} | {{ result.weather }}</small></p></div>
+                <div class="result-card"><strong>Venue Capacity</strong><p>{{ result.venue_capacity }}</p></div>
+                <div class="result-card"><strong>Baseline Prediction (Model)</strong><p>{{ result.baseline_prediction | round }} people</p></div>
+                <div class="result-card"><strong>Sentiment Adjustment</strong><p>{% if result.sentiment_adjustment > 0 %}+{% endif %}{{ (result.sentiment_adjustment * 100) | round(1) }}%</p></div>
+                <div class="result-card"><strong>Final Crowd Prediction</strong><p style="font-size: 28px; font-weight: bold; color: #2563eb;">{{ result.final_crowd }} people</p></div>
+                <div class="result-card"><strong>Risk Level</strong><p style="font-size: 24px; margin-top: 8px;"><span class="badge {{ result.risk_color }}">{{ result.risk_level }}</span></p></div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+</body>
+</html>

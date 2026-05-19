@@ -1,0 +1,122 @@
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ============================================================
+# Virtual environments
+# ============================================================
+.venv/
+venv/
+env/
+ENV/
+
+# ============================================================
+# Secrets / local config
+# ============================================================
+.env
+!.env.example
+
+# ============================================================
+# Databases (runtime generated)
+# ============================================================
+*.sqlite
+*.sqlite3
+database.db
+# data.db is intentionally kept — contains events and layouts needed by the app
+
+# ============================================================
+# Large model weights & checkpoints  (>50 MB — GitHub limit)
+# Download separately or use Git LFS
+# ============================================================
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+*.h5
+*.pkl
+
+# Keep the 4 model files the web app actually loads at runtime
+!ui_handoff/models/crowd_prediction_model.joblib
+!ui_handoff/models/label_encoders.joblib
+!OMAN/checkpoints/student_best.pth
+!OMAN/checkpoints/mobile_kd_stable/epoch_010.pth
+# SENSE.pth (874 MB) and convnext (191 MB) are too large even for LFS — download manually
+
+# ============================================================
+# Training datasets  (UCF_CC_50 images + annotations)
+# ============================================================
+dataset/
+*.mat
+
+# ============================================================
+# Generated outputs / experiment results
+# ============================================================
+outputs/
+OMAN/outputs/
+SENSE_MobileNet_KD/checkpoints/
+
+# ============================================================
+# Jupyter / notebook checkpoints
+# ============================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ============================================================
+# Node / frontend-public (Vite scaffold — not part of the app)
+# ============================================================
+frontend-public/
+node_modules/
+
+# ============================================================
+# IDE / tool folders
+# ============================================================
+.qodo/
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ============================================================
+# OS noise
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Runtime / temp files
+# ============================================================
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# ============================================================
+# Sentiment / scraping output files (regenerated at runtime)
+# ============================================================
+sentiment_results.json
+insta_facebook_reddit_easyocr_sentiment.json
+ui_handoff/insta_facebook_reddit_easyocr_sentiment.json
+
+# ============================================================
+# Misc large binary / media files
+# ============================================================
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.zip
+*.tar.gz
+*.rar
